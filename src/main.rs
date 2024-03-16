@@ -5,15 +5,16 @@ use newsletter_service::{
     startup::run,
     telemetry::{get_subscriber, init_subscriber},
 };
+use secrecy::ExposeSecret;
 use sqlx::PgPool;
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    let subscriber = get_subscriber("newsletter_service".into(), "info".into());
+    let subscriber = get_subscriber("newsletter_service".into(), "info".into(), std::io::stdout);
     init_subscriber(subscriber);
 
     let config = get_config().expect("Failed to read configuration.");
-    let connection_pool = PgPool::connect(&config.database.connection_string())
+    let connection_pool = PgPool::connect(config.database.connection_string().expose_secret())
         .await
         .expect("Failed to connect to Postgres");
     let addr = format!("127.0.0.1:{}", config.app_port);
