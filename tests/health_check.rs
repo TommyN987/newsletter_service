@@ -3,6 +3,7 @@ use newsletter_service::{
     telemetry::{get_subscriber, init_subscriber},
 };
 use once_cell::sync::Lazy;
+use reqwest::Client;
 use secrecy::ExposeSecret;
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::net::TcpListener;
@@ -76,7 +77,7 @@ pub async fn configure_databate(config: &DatabaseSettings) -> PgPool {
 async fn health_check_works() {
     // Arrange
     let app = spawn_app().await;
-    let client = reqwest::Client::new();
+    let client = Client::new();
 
     // Act
     let response = client
@@ -95,7 +96,7 @@ async fn subscribe_returns_200_for_valid_form_data() {
     // Arrange
     let app = spawn_app().await;
 
-    let client = reqwest::Client::new();
+    let client = Client::new();
 
     // Act
     let body = "name=de%20niro&email=robert_de_niro@gmail.com";
@@ -123,10 +124,10 @@ async fn subscribe_returns_200_for_valid_form_data() {
 async fn subscribe_returns_400_when_data_is_missing() {
     // Arrange
     let app = spawn_app().await;
-    let client = reqwest::Client::new();
+    let client = Client::new();
     let test_cases = vec![
         ("name=de%20niro", "missing the email"),
-        ("email=robert_de_niro&40gmail.com", "missing the name"),
+        ("email=robert_de_niro%40gmail.com", "missing the name"),
         ("", "missing both name and email"),
     ];
 
@@ -148,5 +149,36 @@ async fn subscribe_returns_400_when_data_is_missing() {
             "The API did not fail with 400 Bad Request when the payload was {}.",
             error_message
         );
+    }
+}
+
+#[tokio::test]
+async fn subscribe_returns_400_when_fields_are_present_but_invalid() {
+    // Arrange
+    let app = spawn_app().await;
+    let client = Client::new();
+    let test_cases = vec![
+        ("name=&email=robert_de_niro%40gmail.com", "empty name"),
+        ("name=Robert&email=", "empty email"),
+        ("name=Robert&email=not-an-email", "invalid email"),
+    ];
+
+    for (body, description) in test_cases {
+        // Act
+        let response = client
+            .post(&format!("{}/subscriptions", &app.address))
+            .header("Content-Type", "application/x-www-urlencoded")
+            .body(body)
+            .send()
+            .await
+            .expect("Failed to execute request");
+
+        // Assert
+        assert_eq!(
+            400,
+            response.status().as_u16(),
+            "The API did not return a 200 OK when the payload was {}.",
+            description
+        )
     }
 }
